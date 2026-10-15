@@ -1,0 +1,9 @@
+# Needed to actually run Gemma (Colab or a local CUDA machine).
+-r requirements.txt
+torch
+transformers>=4.50   # Gemma 3 support
+accelerate
+datasets             # SST-2
+scikit-learn         # OpenML credit-g fallback
+huggingface_hub
+tqdm

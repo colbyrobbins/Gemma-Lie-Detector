@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gemma-lie-detector"
+version = "0.1.0"
+description = "Do Gemma's self-explanations match what actually drives its decisions? An ablation-based faithfulness audit for text and tabular inputs."
+requires-python = ">=3.10"
+dependencies = ["numpy", "pandas", "scipy", "matplotlib"]
+
+[project.optional-dependencies]
+gpu = ["torch", "transformers>=4.50", "accelerate", "datasets", "scikit-learn", "huggingface_hub", "tqdm"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

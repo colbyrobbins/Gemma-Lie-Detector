@@ -1,0 +1,6 @@
+# Light install: analysis, figures, and the test-suite (no GPU needed).
+numpy
+pandas
+scipy
+matplotlib
+pytest
