@@ -12,7 +12,16 @@ JOB_LEVELS = {0: "unskilled and non-resident", 1: "unskilled and resident",
 def load_sst2(n=500, seed=0, min_words=8, max_words=40):
     """SST-2 validation sentences (GLUE). Needs `datasets`."""
     from datasets import load_dataset
-    ds = load_dataset("glue", "sst2", split="validation")
+    ds, err = None, None
+    # the short id "glue" was retired on the Hub; try the current ids in order
+    for args in (("nyu-mll/glue", "sst2"), ("stanfordnlp/sst2",), ("glue", "sst2")):
+        try:
+            ds = load_dataset(*args, split="validation")
+            break
+        except Exception as e:  # noqa: BLE001
+            err = e
+    if ds is None:
+        raise RuntimeError(f"could not load SST-2: {err}")
     rows = [(i, r["sentence"].strip(), r["label"]) for i, r in enumerate(ds)
             if min_words <= len(r["sentence"].split()) <= max_words]
     rng = np.random.default_rng(seed)
