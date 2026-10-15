@@ -38,7 +38,7 @@ A flip counts as *cue-driven* only if removing the cue restores the original dec
 
 1. Accept the license at <https://huggingface.co/google/gemma-3-4b-it> (while logged in) and create a read token.
 2. In Colab add a secret named `HF_TOKEN` with notebook access on, and select a GPU runtime.
-3. Open `notebooks/01_text_core.ipynb` (then `02_tabular.ipynb`) and run top to bottom. Start with `N = 50`; the smoke-test cell shows raw model output so you can check parsing before the long run. Results are written as resumable JSONL under `results/`.
+3. Open `notebooks/01_text_core.ipynb` (then `02_tabular.ipynb`) and run top to bottom. Start with `N = 50`; the initial test cell shows raw model output so you can check parsing before the long run. Results are written as resumable JSONL under `results/`.
 
 **Run the tests (no GPU, no downloads)**
 
@@ -82,10 +82,6 @@ results/          JSONL outputs and figures
 - **Small model, short inputs, two datasets.** Findings are about `gemma-3-4b-it` on SST-2 and German credit, not LLMs in general.
 - **Numerical precision.** Gemma 3 may be unstable in fp16 on a T4; the scorer raises on non-finite logits and the notebook lets you switch dtype or model.
 - **Early results are from small runs** (50 reviews to start); check the confidence intervals before reading anything into a difference.
-
-## Responsible AI notes
-
-The credit task contains `age` and `sex`. It is used here only to audit explanation honesty, never to build a lending system. A model whose explanations omit the features that drive its decisions is exactly the failure that makes explanations a poor basis for trust or compliance.
 
 ## Related work
 
