@@ -38,7 +38,7 @@ A flip counts as *cue-driven* only if removing the cue restores the original dec
 
 1. Accept the license at <https://huggingface.co/google/gemma-3-4b-it> (while logged in) and create a read token.
 2. In Colab add a secret named `HF_TOKEN` with notebook access on, and select a GPU runtime.
-3. Open `notebooks/01_text_core.ipynb` (then `02_tabular.ipynb`) and run top to bottom. Start with `N = 50`; the initial test cell shows raw model output so you can check parsing before the long run. Results are written as resumable JSONL under `results/`.
+3. Open `notebooks/01_text_core.ipynb` (then `02_tabular.ipynb`) and run top to bottom. Start with `N = 50`; the initial test cell shows raw model output so you can check parsing before the long run. Results are written as resumable JSONL under `results/text_results/` (text) and committed, so a fresh clone resumes where the last run stopped.
 
 **Run the tests (no GPU, no downloads)**
 

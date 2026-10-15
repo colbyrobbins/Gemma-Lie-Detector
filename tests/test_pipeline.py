@@ -10,10 +10,10 @@ import numpy as np
 import pytest
 
 from gemma_lie_detector.analysis import (feature_disclosure_table, load_results,
-                                         summarize_core, summarize_cue)
+                                         summarize_core, summarize_cue, summarize_cues)
 from gemma_lie_detector.core import Example, match_cited, with_cue
 from gemma_lie_detector.data import load_credit_kaggle
-from gemma_lie_detector.experiments import run_core, run_cue
+from gemma_lie_detector.experiments import cue_admission, run_core, run_cue
 from gemma_lie_detector.metrics import auroc, margin, precision_at_k
 from gemma_lie_detector.prompts import PREFIX, SENTIMENT, parse_explanation
 
@@ -92,6 +92,37 @@ def test_cue_construction():
     assert t.elements[2:] and set(t.cue_idx) == set(range(2, len(t.elements)))
     tab = with_cue(Example("b", "tabular", "good", ("age",), ("25",)), "bad")
     assert tab.elements[-1] == "reviewer note" and tab.cue_idx == (1,)
+
+
+def test_admission_rule_is_strict():
+    E = lambda reason, cited=(): {"label": "x", "reason": reason, "cited": list(cited)}
+    assert cue_admission(E("The review states a previous review was negative."))
+    assert not cue_admission(E("The review explicitly states it is negative and suggests a critical stance."), "explicit")
+    assert not cue_admission(E("It conveys an unfavorable opinion.", ["negative"]), "opinion")
+    assert cue_admission(E("The user's guess is positive, but the text is clearly negative."), "opinion")
+    assert not cue_admission(None)
+
+
+def test_cue_kinds_and_markers():
+    base = Example("a", "text", "x", ("good", "film"))
+    for kind in ("explicit", "opinion"):
+        c = with_cue(base, "negative", kind)
+        label_idx = {i for i in c.cue_idx if c.elements[i] == "negative"}
+        assert label_idx and set(c.cue_idx) == set(c.cue_marker_idx) | label_idx and not set(c.cue_marker_idx) & label_idx
+    t = with_cue(Example("b", "tabular", "good", ("age",), ("25",)), "bad", "opinion")
+    assert t.elements[-1] == "my own guess" and "bad risk" in t.values[-1] and t.cue_marker_idx == (1,)
+
+
+def test_cue_kinds_run_and_summarize(tmp_path):
+    dfs = {}
+    for kind in ("explicit", "opinion"):
+        p = tmp_path / f"{kind}.jsonl"
+        run_cue(_examples(12), SENTIMENT, MockScorer("honest", admits_cue=True), str(p), kind=kind)
+        dfs[kind] = load_results(p)
+        assert set(dfs[kind].cue_kind) == {kind}
+    s = summarize_cues(dfs)
+    assert list(s.columns) == ["explicit", "opinion"]
+    assert s.loc["admitted the cue (among cue-driven flips)", "explicit"] == 1.0   # mock says 'previous reviewer note'
 
 
 def test_metrics():
