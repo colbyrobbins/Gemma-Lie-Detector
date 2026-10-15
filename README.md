@@ -69,7 +69,7 @@ results/          JSONL outputs and figures
 ## Design decisions
 
 - **Occlusion as ground truth, not as truth.** Occlusion is a causal intervention on the real model, which is why it is the yardstick. It is not perfect (see limitations); a second attribution method (Integrated Gradients) is a possible text-only cross-check.
-- **Log-odds for ranking, probability for deletion.** Probabilities saturate on confident predictions and flatten the ranking; log-odds do not. Deletion results are reported as probability drop and flip rate because those are easier to read.
+- **Margins from log-probabilities, never from probabilities.** A first 50-review run showed that Gemma's P(decision) is exactly 1.0 in float32 for 96% of SST-2 reviews, so every single-word deletion scored zero and the occlusion ranking was empty for two thirds of the reviews. The scorer now returns log-probabilities and importance is the drop in the decision's log-odds (its *margin*), which stays informative at any confidence. Deletion results are reported as margin drop and as flip rate.
 - **Label read from logits, not parsed from text.** This gives a continuous decision score and removes parse failures from the ablation loop. A `label_mass` check (should be near 1) guards the assumption that the model starts its answer with a label word.
 - **Tied attributions count as ties.** In precision@k, elements tied with the k-th attribution all count as top-k, but an element with zero measurable effect never does.
 - **Everything resumable.** Colab disconnects; each example is appended to a JSONL file and skipped on re-run.
@@ -81,7 +81,7 @@ results/          JSONL outputs and figures
 - **Cue admission is detected with a keyword rule** plus whether the cue was cited, so it can miss paraphrases. Plan: hand-check a sample of about 30 explanations and report agreement.
 - **Small model, short inputs, two datasets.** Findings are about `gemma-3-4b-it` on SST-2 and German credit, not LLMs in general.
 - **Numerical precision.** Gemma 3 may be unstable in fp16 on a T4; the scorer raises on non-finite logits and the notebook lets you switch dtype or model.
-- **Not yet run on real Gemma** at the time of this commit; the logic is tested with a mock model only.
+- **Early results are from small runs** (50 reviews to start); check the confidence intervals before reading anything into a difference.
 
 ## Responsible AI notes
 

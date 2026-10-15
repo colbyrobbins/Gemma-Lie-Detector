@@ -41,6 +41,11 @@ def summarize_core(df):
         add("drop in P(decision): delete top-m by occlusion", d_del.del_top_drop)
         add("drop in P(decision): delete random m", d_del.del_rand_drop)
         add("faithfulness gap (cited - random)", d_del.del_cited_drop - d_del.del_rand_drop)
+        if "del_cited_mdrop" in d_del:
+            add("drop in log-odds: delete cited", d_del.del_cited_mdrop)
+            add("drop in log-odds: delete top-m by occlusion", d_del.del_top_mdrop)
+            add("drop in log-odds: delete random m", d_del.del_rand_mdrop)
+            add("log-odds gap (cited - random)", d_del.del_cited_mdrop - d_del.del_rand_mdrop)
         add("decision flips: delete cited", d_del.del_cited_flip.astype(float))
         add("decision flips: delete random m", d_del.del_rand_flip)
         add("decision kept using only cited (sufficiency)", 1 - d_del.suff_flip.astype(float))
@@ -98,11 +103,12 @@ def make_figures(core_df, cue_df=None, outdir="results"):
     d = core_df.dropna(subset=["del_cited_drop"]) if "del_cited_drop" in core_df else core_df.iloc[0:0]
     if len(d):
         fig, ax = plt.subplots(figsize=(5.5, 3.6))
-        cols = [("del_cited_drop", "cited by Gemma"), ("del_top_drop", "top by occlusion"), ("del_rand_drop", "random")]
+        m = "mdrop" if "del_cited_mdrop" in d else "drop"
+        cols = [(f"del_cited_{m}", "cited by Gemma"), (f"del_top_{m}", "top by occlusion"), (f"del_rand_{m}", "random")]
         stats = [bootstrap_ci(d[c]) for c, _ in cols]
         ax.bar([l for _, l in cols], [s[0] for s in stats],
                yerr=[[s[0] - s[1] for s in stats], [s[2] - s[0] for s in stats]], capsize=4)
-        ax.set_ylabel("drop in P(decision) after deleting")
+        ax.set_ylabel("drop in log-odds of decision" if m == "mdrop" else "drop in P(decision)")
         ax.set_title("Does deleting what Gemma cites change its answer?")
         fig.tight_layout()
         fig.savefig(f"{outdir}/deletion.png", dpi=160)

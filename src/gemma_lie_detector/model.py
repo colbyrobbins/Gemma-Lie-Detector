@@ -1,10 +1,10 @@
 """Gemma wrapper. Exposes the two operations the experiments need:
 
-    score(prompts)    -> (probs [N, n_labels], label_mass [N])
+    score(prompts)    -> (logp [N, n_labels], label_mass [N])
     generate(prompts) -> list[str]   (PREFIX + greedy continuation)
 
-`probs` is the next-token distribution after PREFIX, restricted to the label
-words and renormalised; `label_mass` is how much of the full-vocabulary
+`logp` is the next-token log-distribution after PREFIX, restricted to the label
+words and renormalised (kept in log space: probabilities saturate to exactly 1.0); `label_mass` is how much of the full-vocabulary
 probability sat on those words (a sanity check: should be ~1).
 """
 from __future__ import annotations
@@ -34,9 +34,10 @@ class GemmaScorer:
             device_map = {"": 0}
         self.labels = tuple(labels)
         self.batch_size = batch_size
-        if dtype == "auto":  # T4 has no native bf16; Colab L4/A100 do.
-            native_bf16 = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
-            dtype = "bfloat16" if native_bf16 else "float16"
+        if dtype == "auto":
+            # Gemma 3 overflows in float16 (non-finite logits, confirmed on a Colab T4), so always use
+            # bfloat16. A T4 has no native bf16 so it is slower there; L4/A100 run it natively.
+            dtype = "bfloat16"
         self.dtype = dtype
         dt = getattr(torch, dtype)
 
@@ -75,7 +76,7 @@ class GemmaScorer:
 
     def score(self, prompts):
         torch = self.torch
-        probs, mass = [], []
+        logps, mass = [], []
         with torch.inference_mode():
             for chunk in _chunks(list(prompts), self.batch_size):
                 enc = self._encode(chunk)
@@ -91,8 +92,8 @@ class GemmaScorer:
                 logp = torch.log_softmax(logits, dim=-1)
                 lab_lp = torch.stack([torch.logsumexp(logp[:, ids], dim=-1) for ids in self.label_ids], dim=-1)
                 mass.append(lab_lp.exp().sum(-1).cpu().numpy())
-                probs.append(torch.softmax(lab_lp, dim=-1).cpu().numpy())
-        return np.concatenate(probs), np.concatenate(mass)
+                logps.append(torch.log_softmax(lab_lp, dim=-1).cpu().numpy())
+        return np.concatenate(logps), np.concatenate(mass)
 
     def generate(self, prompts, max_new_tokens=96):
         torch = self.torch

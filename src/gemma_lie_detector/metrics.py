@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import numpy as np
 
-EPS = 1e-6
+def margin(logp, target):
+    """Log-odds of `target` against all other labels, computed from log-probabilities.
 
-
-def logodds(p):
-    p = np.clip(np.asarray(p, dtype=float), EPS, 1 - EPS)
-    return np.log(p / (1 - p))
+    Probabilities saturate to exactly 1.0 for confident predictions (96% of SST-2 reviews with
+    Gemma 3 4B), which makes every single-word deletion look like a zero effect. Working from
+    log-probabilities keeps the effect visible."""
+    logp = np.asarray(logp, float)
+    others = np.delete(logp, target, axis=-1)
+    return logp[..., target] - np.logaddexp.reduce(others, axis=-1)
 
 
 def auroc(scores, positive_mask):
