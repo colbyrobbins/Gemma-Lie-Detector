@@ -28,6 +28,10 @@ class GemmaScorer:
         from transformers import AutoProcessor
 
         self.torch = torch
+        if device_map == "auto" and torch.cuda.is_available():
+            # Put the whole model on the GPU. With "auto", a second copy of the model (e.g. re-running
+            # the load cell) silently offloads layers to CPU and makes everything very slow.
+            device_map = {"": 0}
         self.labels = tuple(labels)
         self.batch_size = batch_size
         if dtype == "auto":  # T4 has no native bf16; Colab L4/A100 do.
