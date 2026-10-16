@@ -77,8 +77,8 @@ with tab_cited:
     if ig is None:
         st.info("Integrated gradients results for this review are not in app/data yet.")
     else:
-        chips(rec["elements"], dl.highlight_classes(rec, ig["attr_ig_pad"]))
-        st.caption("Same colors, with integrated gradients (padding baseline) in place of occlusion.")
+        chips(rec["elements"], dl.highlight_classes(rec, ig["attr_ig_zero"]))
+        st.caption("Same colors, with integrated gradients in place of occlusion.")
 
 # ---------------------------------------------------------------- planted cue
 with tab_cue:

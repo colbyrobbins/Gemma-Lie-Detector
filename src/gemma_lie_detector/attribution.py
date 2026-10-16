@@ -82,10 +82,14 @@ class GemmaAttributor:
     Needs the GPU-loaded `GemmaScorer`; it reuses that scorer's model and tokenizer.
     """
 
-    baselines = ("pad", "zero")   # "pad": the padding token's embedding, "zero": all zeros
+    def __init__(self, scorer, steps=64, chunk=4, baselines=("zero",)):
+        """`baselines` picks what "blank" means: "zero" (all-zero embeddings) or "pad" (the padding token's embedding).
 
-    def __init__(self, scorer, steps=32, chunk=4):
+        Defaults reflect smoke tests on Gemma 3 4B in bfloat16: the zero baseline passed the completeness
+        check at 64 steps, while the pad baseline failed it and got worse with more steps (noisy gradients).
+        """
         self.scorer, self.steps, self.chunk = scorer, steps, chunk
+        self.baselines = tuple(baselines)
         scorer.model.requires_grad_(False)   # gradients are needed for the inputs only
 
     def _margin(self, embeds, mask, target):

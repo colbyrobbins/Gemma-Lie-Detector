@@ -5,8 +5,7 @@ regenerated) this compares four ways of scoring which words drive the decision:
 
   delete    delete one word at a time (the core experiment's reference)
   replace   swap one word at a time for a placeholder
-  ig_pad    integrated gradients, padding-embedding baseline
-  ig_zero   integrated gradients, all-zeros baseline
+  ig_zero   integrated gradients, all-zeros baseline (ig_pad, padding-embedding baseline, is optional)
 
 and judges them, along with Gemma's own citations, with behavioural tests:
   - top-m test:   delete each method's top-m words (m = number of cited words) and see how far
@@ -89,7 +88,8 @@ def analyze_deep(ex, task, scorer, attributor, core_rec, k_curve=6, n_random=3, 
     rec["curve_random"] = np.mean(random_curves, axis=0).tolist() if random_curves[0] else []
 
     # 4. Smallest group of words whose deletion flips the decision, and do the citations overlap it?
-    rankings = [_order(attrs["delete"])] + ([_order(attrs["ig_pad"])] if "ig_pad" in attrs else [])
+    ig_name = next((name for name in attrs if name.startswith("ig_")), None)   # first integrated-gradients method
+    rankings = [_order(attrs["delete"])] + ([_order(attrs[ig_name])] if ig_name else [])
     pool = build_pool(cited, rankings)
     flip = minimal_flip_set(scorer, task, ex, pred, pool, max_size=flip_size)
     rec["flip_pool"] = pool

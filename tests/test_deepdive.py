@@ -118,3 +118,24 @@ def test_deepdive_skips_untestable_reviews(tmp_path):
     run_core([ex], SENTIMENT, MockScorer("honest"), core_path)
     run_deep([ex], SENTIMENT, MockScorer(), None, core_path, deep_path)
     assert len(load_deep(deep_path)) == 0                           # recorded as skipped, excluded on load
+
+
+def test_attributor_defaults_and_flip_pool_uses_first_ig_method(tmp_path):
+    from types import SimpleNamespace
+    from gemma_lie_detector.attribution import GemmaAttributor
+
+    stub = SimpleNamespace(model=SimpleNamespace(requires_grad_=lambda flag: None))
+    att = GemmaAttributor(stub)
+    assert att.baselines == ("zero",) and att.steps == 64     # defaults chosen from the smoke tests
+    assert GemmaAttributor(stub, baselines=("pad", "zero")).baselines == ("pad", "zero")
+
+    class ZeroOnly(MockAttributor):
+        baselines = ("zero",)
+
+    exs = _examples(10)
+    core_path, deep_path = str(tmp_path / "core.jsonl"), str(tmp_path / "deep.jsonl")
+    run_core(exs, SENTIMENT, MockScorer("honest"), core_path)
+    run_deep(exs, SENTIMENT, MockScorer(), ZeroOnly(), core_path, deep_path, k_curve=3)
+    df = load_deep(deep_path)
+    assert "attr_ig_zero" in df and "attr_ig_pad" not in df and df.flip_pool.map(len).min() > 0
+    assert method_agreement(df).shape == (3, 3)

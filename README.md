@@ -33,7 +33,7 @@ Deleting one word at a time can mislead (broken grammar, redundant words hiding 
 | Check | What it does |
 |---|---|
 | Replace instead of delete | Swaps each word for a placeholder; if rankings agree with deletion, the grammar-breaking artifact is not driving the result |
-| Integrated gradients | A gradient-based attribution (pad and zero baselines) as an independent second opinion, with a completeness check that flags unreliable runs |
+| Integrated gradients | A gradient-based attribution (zero-embedding baseline, 64 steps) as an independent second opinion, with a completeness check that flags unreliable runs |
 | Smallest flip set | Searches subsets of up to 3 candidate words for the fewest whose deletion flips the decision, and checks whether Gemma cited them |
 | One behavioural judge | Deletes each method's top-m words (and Gemma's cited words, and random words) and compares how far the margin falls, plus deletion curves |
 
@@ -102,7 +102,7 @@ results/          JSONL outputs and figures
 - **Label read from logits, not parsed from text.** This gives a continuous decision score and removes parse failures from the ablation loop. A `label_mass` check (should be near 1) guards the assumption that the model starts its answer with a label word.
 - **Tied attributions count as ties.** In precision@k, elements tied with the k-th attribution all count as top-k, but an element with zero measurable effect never does.
 - **The deep dive reuses the core citations.** It reads Gemma's cited words from the core results file instead of regenerating them, so both experiments judge the very same explanations.
-- **Integrated gradients are reported with a completeness check.** IG's scores should sum to the change in margin from baseline to input; reviews where they do not are flagged rather than trusted, because bfloat16 gradients can be noisy. Two baselines (padding embedding, zeros) are used because IG results depend on the baseline.
+- **Integrated gradients are reported with a completeness check.** IG's scores should sum to the change in margin from baseline to input; reviews where they do not are flagged rather than trusted, because bfloat16 gradients can be noisy. IG results depend on the baseline: in smoke tests on Gemma 3 4B (bfloat16) the all-zeros baseline passed the check at 64 steps, while a padding-embedding baseline failed it and got worse with more steps, so zeros is the default and the pad baseline is an option (`baselines=("pad",)`).
 - **The flip-set search is exhaustive but capped.** It tries every subset of up to 3 words from a small candidate pool (Gemma's cited words plus the top words of occlusion and IG), so "no flip set found" means none in that pool, not none anywhere.
 - **Everything resumable.** Colab disconnects; each example is appended to a JSONL file and skipped on re-run.
 
