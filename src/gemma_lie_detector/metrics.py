@@ -47,3 +47,23 @@ def precision_at_k(attr, groups):
     # ties at the k-th value count as top-k, but an element with no measurable effect never does
     top = {int(i) for i in np.flatnonzero((attr >= thr - 1e-12) & (attr > 1e-9))}
     return sum(bool(g & top) for g in groups) / k
+
+
+def spearman(a, b):
+    """Rank correlation between two score vectors (ties get their average rank).
+
+    Used to ask whether two attribution methods order the words the same way."""
+    def ranks(x):
+        x = np.asarray(x, float)
+        order = x.argsort(kind="mergesort")
+        r = np.empty(len(x))
+        r[order] = np.arange(len(x), dtype=float)
+        for v in np.unique(x):
+            tie = x == v
+            if tie.sum() > 1:
+                r[tie] = r[tie].mean()
+        return r
+    ra, rb = ranks(a), ranks(b)
+    if ra.std() == 0 or rb.std() == 0:
+        return float("nan")
+    return float(np.corrcoef(ra, rb)[0, 1])
