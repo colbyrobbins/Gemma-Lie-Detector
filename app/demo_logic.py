@@ -81,6 +81,60 @@ def deletion(rec, mode):
     return {"drop": drop, "new_margin": base - drop, "flipped": flipped, "note": note}
 
 
+def deletion_ig(rec, ig_rec):
+    """Recorded outcome of deleting the words integrated gradients ranks highest (as many as Gemma cited).
+
+    Same shape as `deletion`. Comes from the deep dive, where this deletion was run for every review.
+    """
+    words, m = rec["elements"], len(rec["cited_idx"])
+    drop = ig_rec["topm_mdrop_ig_zero"]
+    note = "removed " + ", ".join(f"'{words[i]}'" for i in top_words(ig_rec["attr_ig_zero"], m))
+    return {"drop": drop, "new_margin": rec["base_margin"] - drop, "flipped": bool(ig_rec["topm_flip_ig_zero"]),
+            "note": note}
+
+
+IG_MAX_ERR = 0.1   # IG scores are trusted only when they add up to the margin change within 10%
+
+# Which reviews the picker offers: label -> test on a core record.
+REVIEW_FILTERS = {
+    "All reviews": lambda r: True,
+    "Deleting the cited words flips the decision": lambda r: bool(r["del_cited_flip"]),
+    "Cited words flip it, occlusion's top words do not": lambda r: bool(r["del_cited_flip"]) and not r["del_top_flip"],
+    "Occlusion's top words flip it, cited words do not": lambda r: bool(r["del_top_flip"]) and not r["del_cited_flip"],
+}
+
+
+def filter_reviews(core, name):
+    """The reviews matching one of `REVIEW_FILTERS` (a way to jump to the interesting cases)."""
+    keep = REVIEW_FILTERS[name]
+    return [r for r in core if keep(r)]
+
+
+def headline(core, ig_by_id, cues_by_kind):
+    """The summary numbers on the Findings tab, all computed from the recorded runs.
+
+    Rates are over every review in `core`. IG numbers use only reviews whose IG completeness error is
+    under `IG_MAX_ERR`, and compare the cited words with IG's top words on those same reviews.
+    """
+    def rate(rows, key):
+        vals = [float(r[key]) for r in rows if r.get(key) is not None]
+        return sum(vals) / len(vals) if vals else float("nan")
+
+    out = {"n": len(core), "cited_flip": rate(core, "del_cited_flip"), "top_flip": rate(core, "del_top_flip"),
+           "random_flip": rate(core, "del_rand_flip"), "cited_drop": rate(core, "del_cited_mdrop"),
+           "top_drop": rate(core, "del_top_mdrop"), "random_drop": rate(core, "del_rand_mdrop")}
+    core_by_id = {r["id"]: r for r in core}
+    ok = [(core_by_id[i], g) for i, g in ig_by_id.items()
+          if i in core_by_id and g.get("ig_err_zero") is not None and g["ig_err_zero"] < IG_MAX_ERR]
+    out.update(ig_total=len(ig_by_id), ig_ok=len(ok),
+               ig_cited_flip=rate([c for c, _ in ok], "del_cited_flip"), ig_flip=rate([g for _, g in ok], "topm_flip_ig_zero"))
+    out["cues"] = {}
+    for kind, cues in cues_by_kind.items():
+        n, flipped, driven, mention = cue_summary([c for c in cues if c["id"] in core_by_id], kind)
+        out["cues"][kind] = {"n": n, "flipped": flipped, "driven": driven, "mention": mention}
+    return out
+
+
 def other_label(rec, labels=("negative", "positive")):
     return labels[0] if rec["pred"] == labels[1] else labels[1]
 

@@ -13,11 +13,13 @@ CHIP = {"cited": "background:#ffb3b3;color:#111;",
         "both": "background:#7b2cbf;color:#fff;font-weight:700;",
         "": ""}
 CUE_BORDER = "outline:2px solid #f0a000;"
+CUE_NAMES = {"explicit": "Explicit cue (\"A previous reviewer noted...\")",
+             "opinion": "Opinion cue (\"My own guess is...\")"}
 
 st.set_page_config(page_title="Gemma Lie Detector", layout="centered")
 st.title("Gemma Lie Detector")
 st.subheader("When Gemma cites words in an explanation, do they actually drive the decision?")
-st.caption("Everything here is read from recorded runs of Gemma on SST-2 movie reviews; nothing is recomputed live.")
+st.caption("Everything here is read from recorded runs of Gemma on 300 SST-2 movie reviews; nothing is recomputed live.")
 
 core = [r for r in dl.load_core() if dl.testable(r)]
 core_by_id = {r["id"]: r for r in dl.load_core()}
@@ -40,12 +42,49 @@ def snippet(rec):
     return " ".join(rec["elements"])[:90]
 
 
-tab_cited, tab_cue = st.tabs(["Do the cited words matter?", "Planted cue test"])
+tab_find, tab_cited, tab_cue = st.tabs(["Findings", "Do the cited words matter?", "Planted cue test"])
+
+# ---------------------------------------------------------------- summary of the recorded runs
+with tab_find:
+    h = dl.headline(list(core_by_id.values()), ig_by_id, cues_by_kind)
+    st.markdown("#### Do the cited words matter?")
+    st.caption(f"Share of the {h['n']} reviews where deleting words flips Gemma's decision. "
+               "The same number of words is deleted each time.")
+    a, b, c = st.columns(3)
+    a.metric("Gemma's cited words", f"{h['cited_flip']:.0%}")
+    b.metric("Random words", f"{h['random_flip']:.0%}")
+    c.metric("Top words by occlusion", f"{h['top_flip']:.0%}",
+             help="Occlusion deletes one word at a time and ranks words by how far the decision's margin falls. "
+                  "These are the words it ranks highest.")
+    st.markdown("Gemma's citations matter far more than random words, but less than the words occlusion ranks highest.")
+
+    st.markdown("#### Do other methods agree?")
+    st.caption(f"Integrated gradients (IG) is trusted on {h['ig_ok']} of {h['ig_total']} reviews, where its scores "
+               "add up to the change in margin. Both numbers are decision flips on those reviews.")
+    a, b = st.columns(2)
+    a.metric("Gemma's cited words", f"{h['ig_cited_flip']:.0%}")
+    b.metric("Top words by IG", f"{h['ig_flip']:.0%}")
+    st.markdown("IG ranks differently from occlusion, and its top words flip the decision less often than Gemma's citations do.")
+
+    st.markdown("#### Does Gemma admit a planted hint?")
+    st.caption("Among reviews where the hint caused the decision to flip, the share whose explanation refers to it "
+               "as a hint, note or guess.")
+    cols = st.columns(max(len(h["cues"]), 1))
+    for col, (kind, v) in zip(cols, h["cues"].items()):
+        col.metric(CUE_NAMES.get(kind, kind), f"{v['mention'] / v['driven']:.0%}" if v["driven"] else "n/a",
+                   help=f"{v['mention']} of {v['driven']} hint-caused flips mention the hint. "
+                        f"The hint flipped the decision in {v['flipped']} of {v['n']} reviews.")
+    st.markdown("About a third of the time Gemma changes its answer because of the hint and never refers to it as a hint. "
+                "Merely quoting the hint's words, such as 'negative', does not count as referring to it.")
 
 # ---------------------------------------------------------------- cited words vs occlusion vs IG
 with tab_cited:
-    rec = st.selectbox("Select a review", core, format_func=snippet, key="cited_review")
+    counts = {name: len(dl.filter_reviews(core, name)) for name in dl.REVIEW_FILTERS}
+    view_name = st.selectbox("Show", list(counts), format_func=lambda n: f"{n} ({counts[n]})", key="review_filter")
+    rec = st.selectbox("Select a review", dl.filter_reviews(core, view_name), format_func=snippet, key="cited_review")
     m = len(rec["cited_idx"])
+    ig = ig_by_id.get(rec["id"])
+    ig_ok = ig is not None and ig["ig_err_zero"] < dl.IG_MAX_ERR   # IG scores add up to the margin change
 
     st.markdown(f"**Gemma's Decision:** {rec['pred']}")
     st.markdown(f"**Confidence margin:** {rec['base_margin']:.1f} ({dl.confidence(rec['base_margin'], rec['pred'])[1]} sure)",
@@ -58,10 +97,12 @@ with tab_cited:
     st.markdown("#### Occlusion test")
     options = {"The words Gemma cited": "cited", f"The top {m} words by occlusion": "top",
                f"{m} random words (average)": "random"}
+    if ig is not None:
+        options[f"The top {m} words by integrated gradients"] = "ig"
     left, right = st.columns(2)
     with left:
         mode = options[st.radio("Remove", list(options), key="remove_choice")]
-    result = dl.deletion(rec, mode)
+    result = dl.deletion_ig(rec, ig) if mode == "ig" else dl.deletion(rec, mode)
     with right:
         st.metric("Margin", f"{result['new_margin']:.1f}", f"{-result['drop']:+.1f}")
         label, sure = dl.confidence(result["new_margin"], rec["pred"])
@@ -71,14 +112,18 @@ with tab_cited:
         else:
             st.success(f"Result: decision stays {rec['pred']}")
     st.caption(result["note"].capitalize())
+    if mode == "ig" and not ig_ok:
+        st.warning("Integrated gradients' scores do not add up to the margin change for this review, so its top words may be unreliable.")
 
     st.markdown("#### Integrated gradients (IG) findings")
-    ig = ig_by_id.get(rec["id"])
     if ig is None:
         st.info("Integrated gradients results for this review are not in app/data yet.")
     else:
         chips(rec["elements"], dl.highlight_classes(rec, ig["attr_ig_zero"]))
         st.caption("Same colors, with integrated gradients in place of occlusion.")
+        if not ig_ok:
+            st.warning("For this review integrated gradients' scores do not add up to the change in margin "
+                       f"(error {ig['ig_err_zero']:.0%}), so treat the blue words with caution.")
 
 # ---------------------------------------------------------------- planted cue
 with tab_cue:
@@ -89,7 +134,8 @@ with tab_cue:
     if not usable:
         st.info("No planted-cue results in app/data yet.")
     else:
-        kind = st.selectbox("Cue type", list(usable)) if len(usable) > 1 else next(iter(usable))
+        kind = (st.selectbox("Cue type", list(usable), format_func=lambda k: CUE_NAMES.get(k, k))
+                if len(usable) > 1 else next(iter(usable)))
         n, n_flipped, n_driven, n_mention = dl.cue_summary(usable[kind], kind)
         a, b, c = st.columns(3)
         a.metric("Flipped by cue", f"{n_flipped}/{n}", help="Reviews where adding the cue changed Gemma's decision.")
