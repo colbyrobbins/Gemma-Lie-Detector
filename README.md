@@ -4,7 +4,7 @@
 
 Language models will happily tell you *why* they answered the way they did ("I chose negative because of *tedious* and *dull*"). This project tests whether that story is true. We treat the explanation as a claim about the model's own behaviour and check the claim with interventions: delete what the model says mattered and see whether the answer changes; plant a misleading hint and see whether the model admits it was swayed.
 
-> Status: **work in progress** (final project for Duke AIPI Responsible AI). Code, tests and Colab notebooks are in place; results sections below are filled in after the Gemma runs.
+> Status: final project for Duke AIPI Responsible AI. Code, tests, Colab notebooks and a Streamlit demo are in place, and the text experiments are complete (300 SST-2 reviews; results below). Still to do: hand-check a sample of the cue-admission labels.
 >
 > **Scope:** the evaluated study is on **text** (SST-2 movie reviews). Tabular support (German credit) is implemented and tested on a mock model but has **not been evaluated on Gemma**; it is future work. Images are out of scope.
 
@@ -38,6 +38,59 @@ Deleting one word at a time can mislead (broken grammar, redundant words hiding 
 | One behavioural judge | Deletes each method's top-m words (and Gemma's cited words, and random words) and compares how far the margin falls, plus deletion curves |
 
 The question becomes three-way: do Gemma's citations, occlusion and integrated gradients agree, and which of them best predicts what really breaks the decision?
+
+## Results
+
+All numbers are for `gemma-3-4b-it` on 300 SST-2 validation reviews (a fixed random sample, seed 0). Intervals are 95% (bootstrap over reviews, or Wilson for proportions). Importance is the drop in the decision's log-odds, so a "drop" of 13 means the model went from very sure to roughly neutral or wrong.
+
+### 1. Do the cited words matter? (notebook 01)
+
+| Measure | Result |
+|---|---|
+| Replies that parse / explained label equals the decision / valid citations | 100% / 100% / 97.5% |
+| Cited words in the occlusion top-k (precision@k) | 0.41 (0.38 to 0.45) |
+| Cited words outrank uncited words (AUROC) | 0.69 (0.67 to 0.71) |
+| Deleting the cited words flips the decision | 27.3% (22.3 to 32.3) |
+| Deleting the same number of random words flips it | 7.2% (5.5 to 9.0) |
+| Log-odds drop: cited / top words by occlusion / random | 13.8 / 17.9 / 3.9 |
+| Decision kept when only the cited words remain (sufficiency) | 89.0% (85.3 to 92.7) |
+
+The citations carry real signal: deleting them does far more damage than deleting random words (gap 9.9 log-odds, 8.3 to 11.6). They are not, however, the most influential words by occlusion.
+
+### 2. Planted cue test (notebook 01)
+
+A hint pointing at the opposite label is added to the review. A flip counts as cue-driven only if removing the cue restores the original decision.
+
+| Cue | Decision flipped | Explanation mentions the cue (among cue-driven flips) | Flipped but never mentioned | Mentions the cue among reviews moved at least 5 log-odds |
+|---|---|---|---|---|
+| Explicit ("A previous reviewer noted...") | 30.0% | 68.9% (62 of 90; 58.7 to 77.5) | 31.1% | 45.4% (of 218) |
+| Opinion ("My own guess is...") | 35.7% | 61.7% (66 of 107; 52.2 to 70.3) | 38.3% | 31.9% (of 226) |
+
+Roughly a third of cue-driven flips are never acknowledged. Gemma admits an opinion cue somewhat less often than a claim attributed to someone else, but the intervals overlap, so treat that difference as suggestive. Admission is detected with a strict keyword rule (see limitations).
+
+### 3. Can the occlusion reference be trusted? (notebook 03)
+
+Integrated gradients (IG) passed its completeness check (relative error under 10%) on 188 of the 300 reviews (62.7%); every IG number below uses only those 188.
+
+| Comparison (same deletion test, m = number of cited words) | Cited words flip | Method's top words flip | Only cited / only method | Exact p | Extra log-odds drop for the method (95% CI) |
+|---|---|---|---|---|---|
+| Occlusion by deleting words (n = 300) | 27.3% | 37.0% | 24 / 53 | 0.001 | +4.0 (2.1 to 5.9) |
+| Occlusion by replacing words (n = 300) | 27.3% | 32.7% | 25 / 41 | 0.064 | +1.2 (-0.6 to 2.9) |
+| Integrated gradients (n = 188) | 24.5% | 11.2% | 34 / 9 | under 0.001 | -6.0 (-8.4 to -3.7) |
+
+- **Occlusion by deletion beats the citations, but not by a lot and not under every variant.** The same direction appears in both halves of the sample, but the replacement version is not significant. Deletion occlusion also picks its words with the same intervention the test then uses, so it has a built-in advantage.
+- **Integrated gradients is the weakest judge here, and it mostly disagrees with occlusion.** The mean rank correlation between IG and occlusion is 0.16 (deletion) and 0.20 (replacement), against 0.49 between the two occlusion variants. IG measures attribution relative to a zero-embedding baseline, not the effect of deleting a word, so a deletion test is not a fair contest for it. The practical reading is that IG is not an independent confirmation of occlusion; the methods answer different questions.
+- **Where the methods agree on a cited word, it is a strong citation.** Of Gemma's cited words (188 reviews, top 3 with a positive score): 18.5% rank high under both occlusion and IG, 23.5% under occlusion only, 13.7% under IG only, 44.3% under neither. "Neither" does not prove a citation is decorative, since words can matter together, but a citation both methods ignore is the best candidate for one.
+- **Flip sets.** A set of up to 3 words whose deletion flips the decision exists within the candidate pool for 62.7% of reviews (188). The smallest such set averages 1.9 words. Gemma's citations contain a smallest flip set exactly in 47.9% of those reviews and cover 67.7% of the best set on average.
+
+### What the evidence supports
+
+1. Gemma's cited words are genuinely connected to its decision: far above random under every test.
+2. They are not the most influential words, and the gap is method-dependent (clear for deletion occlusion, unclear for replacement, reversed for IG).
+3. Gemma often acknowledges an outside hint that changed its answer, but about a third of the time it does not.
+4. No single attribution method is ground truth: the three disagree substantially, which is why the deep dive compares them rather than picking one.
+
+Per-review records are in `results/text_results/`; `app/` replays them interactively.
 
 ## Modalities
 
@@ -114,7 +167,9 @@ results/          JSONL outputs and figures
 - **Cue admission is detected with a keyword rule** plus whether the cue was cited, so it can miss paraphrases. Plan: hand-check a sample of about 30 explanations and report agreement.
 - **Small model, short inputs, one evaluated dataset.** Findings are about `gemma-3-4b-it` on SST-2, not LLMs in general. The tabular pipeline has not been run on Gemma.
 - **Numerical precision.** Gemma 3 may be unstable in fp16 on a T4; the scorer raises on non-finite logits and the notebook lets you switch dtype or model.
-- **Early results are from small runs** (50 reviews to start); check the confidence intervals before reading anything into a difference.
+- **The deletion judge favours deletion-based rankings.** Occlusion by deletion is scored with the same intervention that produced its ranking, and IG measures something different, so the three-way comparison is not a neutral contest. Read it as how well each method predicts what deletion breaks.
+- **IG is only trusted on 62.7% of reviews** (completeness error under 10%), so IG conclusions rest on 188 of 300 reviews and may not extend to the rest.
+- **Sample size.** On all 300 reviews a rate near 50% has an interval of about 6 points either way, but the cue admission rates rest on only 90 and 107 cue-driven flips, so those intervals are about 9 points either way, and the IG results on 188 reviews are in between. Differences smaller than the intervals should not be over-read.
 
 ## Related work
 

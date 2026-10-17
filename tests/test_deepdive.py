@@ -12,8 +12,10 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 from test_pipeline import MockScorer, W, _examples  # noqa: E402
 
-from gemma_lie_detector.analysis_deep import (disagreement_cases, load_deep, make_deep_figures,  # noqa: E402
-                                              method_agreement, summarize_deep)
+from gemma_lie_detector.analysis_deep import (behaviour_comparison, cited_word_ranks,  # noqa: E402
+                                              disagreement_cases, exact_sign_test, flip_patterns, load_deep,
+                                              make_deep_figures, method_agreement, reliable_ig, summarize_deep,
+                                              triangulation_table)
 from gemma_lie_detector.attribution import (completeness_error, integrated_gradients,  # noqa: E402
                                             tokens_to_words, word_char_spans)
 from gemma_lie_detector.core import Example  # noqa: E402
@@ -139,3 +141,35 @@ def test_attributor_defaults_and_flip_pool_uses_first_ig_method(tmp_path):
     df = load_deep(deep_path)
     assert "attr_ig_zero" in df and "attr_ig_pad" not in df and df.flip_pool.map(len).min() > 0
     assert method_agreement(df).shape == (3, 3)
+
+
+def test_combined_method_analysis(tmp_path):
+    assert abs(exact_sign_test(9, 17) - 0.1686) < 1e-3       # the early 100-review split: not significant
+    assert exact_sign_test(0, 0) == 1.0 and exact_sign_test(6, 6) == 1.0 and exact_sign_test(0, 12) < 0.001
+
+    exs = _examples(40)
+    core_path, deep_path = str(tmp_path / "core.jsonl"), str(tmp_path / "deep.jsonl")
+    run_core(exs, SENTIMENT, MockScorer("honest"), core_path)
+    run_deep(exs, SENTIMENT, MockScorer(), MockAttributor(), core_path, deep_path, k_curve=3)
+    df = load_deep(deep_path)
+
+    # the completeness filter drops reviews whose IG scores cannot be trusted
+    bad = df.copy()
+    bad.loc[:2, "ig_err_zero"] = 0.5
+    assert len(reliable_ig(bad)) == len(df) - 3
+
+    table = behaviour_comparison(df)
+    assert len(table) == 5 and table.iloc[-1].method.startswith("(cited")
+    assert (table.iloc[:4].only_cited + table.iloc[:4].only_method <= table.iloc[:4].n).all()
+    assert table.iloc[:4].flip_p.between(0, 1).all()
+
+    patterns = flip_patterns(df)
+    assert abs(patterns.share.sum() - 1) < 1e-9 and patterns.reviews.sum() == len(df)
+
+    # an honest model with exact attributions cites words that both methods rank high
+    words = cited_word_ranks(df)
+    assert len(words) == df.cited_idx.map(len).sum()
+    assert (words.group == "high under both").mean() > 0.8
+    shares = triangulation_table(words)
+    assert abs(shares.iloc[:, 1].sum() - 1) < 1e-9 and (shares.reviews == len(df)).all()
+    assert triangulation_table(words.iloc[0:0]).empty

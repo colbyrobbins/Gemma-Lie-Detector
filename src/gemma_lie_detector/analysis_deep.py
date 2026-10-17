@@ -1,6 +1,8 @@
 """Turn the deep-dive JSONL into summary tables and figures (see deepdive.py for what is measured)."""
 from __future__ import annotations
 
+from math import comb
+
 import numpy as np
 import pandas as pd
 
@@ -80,6 +82,113 @@ def disagreement_cases(df, limit=10):
         out.append(pd.DataFrame({"method": METHOD_LABELS[m], "id": miss.id,
                                  "cited_mdrop": miss.ref_cited_mdrop, "method_topm_mdrop": miss[f"topm_mdrop_{m}"]}))
     return pd.concat(out).sort_values("cited_mdrop", ascending=False).head(limit).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# Combining occlusion and integrated gradients (IG)
+#
+# Neither method is ground truth, so a claim is stronger when it holds under both. The functions
+# below keep IG honest by using only reviews whose completeness error is small, and report
+# review-level statistics (words within one review are not independent of each other).
+# ---------------------------------------------------------------------------------------------
+
+def reliable_ig(df, baseline="zero", max_err=0.1):
+    """Reviews whose IG scores pass the completeness check (relative error below `max_err`)."""
+    return df[df[f"ig_err_{baseline}"] < max_err].reset_index(drop=True)
+
+
+def _num(series):
+    """Series of True/False/None/numbers as floats, with missing values as NaN."""
+    return pd.Series([np.nan if v is None else float(v) for v in series], index=series.index)
+
+
+def exact_sign_test(n_a_only, n_b_only):
+    """Two-sided exact p-value that two methods flip the decision equally often (McNemar's exact test).
+
+    Only reviews where exactly one of the two flips the decision matter: under "no difference"
+    each of those is equally likely to favour either method.
+    """
+    n = n_a_only + n_b_only
+    if n == 0:
+        return 1.0
+    tail = sum(comb(n, i) for i in range(min(n_a_only, n_b_only) + 1)) / 2 ** n
+    return min(1.0, 2 * tail)
+
+
+def behaviour_comparison(df, ig_baseline="zero", ig_max_err=0.1):
+    """Paired comparison of Gemma's cited words against each method's top-m words, on the same deletion test.
+
+    One row per comparison. `drop_diff` is (method's log-odds drop) - (cited words' drop), so a positive
+    value means the method's words hurt the decision more; it comes with a bootstrap interval, which is
+    more sensitive than counting flips. The flip columns count reviews where only the cited words flip
+    the decision (`only_cited`) or only the method's words do (`only_method`), with an exact p-value.
+    IG rows use only reviews that pass the completeness check, so their `n` is smaller.
+    """
+    rows = []
+    for m in _methods(df):
+        d = df
+        if m.startswith("ig_"):
+            d = reliable_ig(df, m[len("ig_"):], ig_max_err)
+        cited_f, method_f = _num(d.ref_cited_flip), _num(d[f"topm_flip_{m}"])
+        ok = cited_f.notna() & method_f.notna()
+        only_c = int(((cited_f == 1) & (method_f == 0) & ok).sum())
+        only_m = int(((cited_f == 0) & (method_f == 1) & ok).sum())
+        diff = _num(d[f"topm_mdrop_{m}"]) - _num(d.ref_cited_mdrop)
+        mean, lo, hi = bootstrap_ci(diff)
+        rows.append(dict(method=METHOD_LABELS[m], n=int(ok.sum()),
+                         cited_flip_rate=float(cited_f[ok].mean()), method_flip_rate=float(method_f[ok].mean()),
+                         only_cited=only_c, only_method=only_m, flip_p=exact_sign_test(only_c, only_m),
+                         drop_diff=mean, drop_diff_lo=lo, drop_diff_hi=hi))
+    diff = _num(df.ref_cited_mdrop) - _num(df.ref_rand_mdrop)    # cited words against random words
+    mean, lo, hi = bootstrap_ci(diff)
+    rows.append(dict(method="(cited words minus random words)", n=int(diff.notna().sum()),
+                     drop_diff=mean, drop_diff_lo=lo, drop_diff_hi=hi))
+    return pd.DataFrame(rows)
+
+
+def flip_patterns(df, baseline="zero", max_err=0.1):
+    """How often each combination of {cited, occlusion, IG} top-m deletions flips the decision.
+
+    The interesting rows are the ones where the three disagree: e.g. "cited and IG flip, occlusion
+    does not" points to occlusion missing redundancy or interactions rather than a bad citation.
+    """
+    d = reliable_ig(df, baseline, max_err)
+    flags = pd.DataFrame({"cited": _num(d.ref_cited_flip), "occlusion": _num(d.topm_flip_delete),
+                          "ig": _num(d[f"topm_flip_ig_{baseline}"])}).dropna().astype(bool)
+    out = flags.value_counts().rename("reviews").reset_index().sort_values("reviews", ascending=False)
+    out["share"] = out.reviews / max(len(flags), 1)
+    return out.reset_index(drop=True)
+
+
+def cited_word_ranks(df, baseline="zero", top_k=3, max_err=0.1):
+    """One row per cited word, with its rank under occlusion and under IG (1 = most supportive).
+
+    A word is *high* under a method if its score is positive and it ranks in that method's top `top_k`.
+    Ties rank together, so a zero score is never high. `group` says which methods agree it matters.
+    """
+    rows = []
+    for _, r in reliable_ig(df, baseline, max_err).iterrows():
+        occ, ig = np.asarray(r["attr_delete"], float), np.asarray(r[f"attr_ig_{baseline}"], float)
+        for i in r["cited_idx"]:
+            occ_rank, ig_rank = 1 + int((occ > occ[i]).sum()), 1 + int((ig > ig[i]).sum())
+            occ_high, ig_high = occ[i] > 0 and occ_rank <= top_k, ig[i] > 0 and ig_rank <= top_k
+            group = ("high under both" if occ_high and ig_high else "occlusion only" if occ_high
+                     else "IG only" if ig_high else "neither")
+            rows.append(dict(id=r["id"], word_idx=i, occ_score=occ[i], ig_score=ig[i],
+                             occ_rank=occ_rank, ig_rank=ig_rank, group=group))
+    return pd.DataFrame(rows, columns=["id", "word_idx", "occ_score", "ig_score", "occ_rank", "ig_rank", "group"])
+
+
+def triangulation_table(words):
+    """Share of each review's cited words in each agreement group, averaged over reviews (bootstrap CI)."""
+    order = ["high under both", "occlusion only", "IG only", "neither"]
+    if words.empty:
+        return pd.DataFrame(columns=["group", "mean share of a review's cited words", "ci_lo", "ci_hi", "reviews"])
+    share = (words.assign(n=1).pivot_table(index="id", columns="group", values="n", aggfunc="sum", fill_value=0)
+             .reindex(columns=order, fill_value=0))
+    share = share.div(share.sum(axis=1), axis=0)
+    rows = [(g, *bootstrap_ci(share[g]), len(share)) for g in order]
+    return pd.DataFrame(rows, columns=["group", "mean share of a review's cited words", "ci_lo", "ci_hi", "reviews"])
 
 
 def make_deep_figures(df, outdir="results"):
