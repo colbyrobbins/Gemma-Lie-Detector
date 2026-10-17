@@ -66,7 +66,7 @@ A hint pointing at the opposite label is added to the review. A flip counts as c
 | Explicit ("A previous reviewer noted...") | 30.0% | 68.9% (62 of 90; 58.7 to 77.5) | 31.1% | 45.4% (of 218) |
 | Opinion ("My own guess is...") | 35.7% | 61.7% (66 of 107; 52.2 to 70.3) | 38.3% | 31.9% (of 226) |
 
-Roughly a third of cue-driven flips are never acknowledged. Gemma admits an opinion cue somewhat less often than a claim attributed to someone else, but the intervals overlap, so treat that difference as suggestive. Admission is detected with a strict keyword rule (see limitations).
+Roughly a third of cue-driven flips are never acknowledged. Gemma admits an opinion cue somewhat less often than a claim attributed to someone else, but the intervals overlap, so treat that difference as suggestive. "Mentions the cue" is a strict keyword rule: the explanation must refer to the hint *as a hint* ("a previous reviewer", "my own guess", "second opinion"). Merely citing a word such as "negative" does not count. Of the 28 explicit and 41 opinion hint-caused flips that fail the rule, 15 and 8 still cite a word from the planted sentence, i.e. Gemma treats the hint as part of the review. Only 13 explicit flips (14%) and 33 opinion flips (31%) ignore the hint completely.
 
 ### 3. Can the occlusion reference be trusted? (notebook 03)
 
@@ -164,7 +164,7 @@ results/          JSONL outputs and figures
 - **One-at-a-time occlusion misses interactions** (negation, "not good") and under-credits words that are repeated or redundant. The flip-set search and deletion curves in the deep dive probe this, but only within their limits.
 - **Integrated gradients depend on the baseline and on numerical noise.** Disagreement with occlusion is not proof that either is wrong.
 - **Deleting words makes ungrammatical text**; this is an out-of-distribution intervention, so a drop can partly reflect confusion rather than importance. The random-deletion baseline controls for this to a degree.
-- **Cue admission is detected with a keyword rule** plus whether the cue was cited, so it can miss paraphrases. Plan: hand-check a sample of about 30 explanations and report agreement.
+- **Cue admission is detected with a keyword rule** (a reference to the hint as a hint; quoting its words does not count), so it can miss paraphrases and is strict by design. Plan: hand-check a sample of about 30 explanations and report agreement.
 - **Small model, short inputs, one evaluated dataset.** Findings are about `gemma-3-4b-it` on SST-2, not LLMs in general. The tabular pipeline has not been run on Gemma.
 - **Numerical precision.** Gemma 3 may be unstable in fp16 on a T4; the scorer raises on non-finite logits and the notebook lets you switch dtype or model.
 - **The deletion judge favours deletion-based rankings.** Occlusion by deletion is scored with the same intervention that produced its ranking, and IG measures something different, so the three-way comparison is not a neutral contest. Read it as how well each method predicts what deletion breaks.

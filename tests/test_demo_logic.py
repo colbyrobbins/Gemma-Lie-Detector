@@ -42,3 +42,26 @@ def test_confidence_text():
     assert dl.confidence(2.0, "positive") == ("positive", "88.1%")
     assert dl.confidence(-2.0, "positive") == ("negative", "88.1%")      # negative margin: the other label wins
     assert dl.confidence(11.5, "negative") == ("negative", "99.9%+")
+
+
+def test_filters_ig_deletion_and_headline():
+    core = [r for r in dl.load_core() if dl.testable(r)]
+    ig = dl.load_ig()
+    assert ig, "app/data/demo_deepdive.jsonl missing"
+
+    only_cited = dl.filter_reviews(core, "Cited words flip it, occlusion's top words do not")
+    only_top = dl.filter_reviews(core, "Occlusion's top words flip it, cited words do not")
+    assert only_cited and only_top and len(dl.filter_reviews(core, "All reviews")) == len(core)
+    assert all(r["del_cited_flip"] and not r["del_top_flip"] for r in only_cited)
+    assert all(r["del_top_flip"] and not r["del_cited_flip"] for r in only_top)
+
+    rec = core[0]
+    out = dl.deletion_ig(rec, ig[rec["id"]])
+    assert abs(out["new_margin"] - (rec["base_margin"] - ig[rec["id"]]["topm_mdrop_ig_zero"])) < 1e-9
+    assert out["note"].count("'") == 2 * len(rec["cited_idx"])        # as many words removed as Gemma cited
+
+    h = dl.headline(core, ig, dl.load_cues())
+    assert h["n"] == len(core) and h["cited_flip"] > 2 * h["random_flip"]
+    assert 0 < h["ig_ok"] <= h["ig_total"] and set(h["cues"]) >= {"explicit"}
+    c = h["cues"]["explicit"]
+    assert c["mention"] <= c["driven"] <= c["flipped"] <= c["n"]
