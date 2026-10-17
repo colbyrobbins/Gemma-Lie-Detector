@@ -8,6 +8,8 @@ Language models will happily tell you *why* they answered the way they did ("I c
 >
 > **Scope:** the evaluated study is on **text** (SST-2 movie reviews). Tabular support (German credit) is implemented and tested on a mock model but has **not been evaluated on Gemma**; it is future work. Images are out of scope.
 
+**Live demo:** <https://gemma-lie-detector.streamlit.app/> - browse the recorded runs, delete Gemma's cited words and see the decision change, and step through the planted-hint test. Nothing is recomputed live.
+
 ## How it works
 
 One model (`google/gemma-3-4b-it`), one prompt format, three kinds of evidence.
@@ -109,6 +111,8 @@ Per-review records are in `results/text_results/`; `app/` replays them interacti
 3. Open `notebooks/01_text_core.ipynb` and run top to bottom, then `03_text_deepdive.ipynb` (it reuses 01's citations). `02_tabular.ipynb` exists but has not been run on Gemma. Start with `N = 50`; the initial test cell shows raw model output so you can check parsing before the long run. Results are written as resumable JSONL under `results/text_results/` (text) and committed, so a fresh clone resumes where the last run stopped.
 
 **Browse the results (no GPU)**
+
+Or open the hosted version: <https://gemma-lie-detector.streamlit.app/>. To run it locally:
 
 ```bash
 pip install streamlit
