@@ -4,3 +4,4 @@ pandas
 scipy
 matplotlib
 pytest
+streamlit            # interactive demo (app/streamlit_app.py)

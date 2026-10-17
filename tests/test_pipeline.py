@@ -10,19 +10,19 @@ import numpy as np
 import pytest
 
 from gemma_lie_detector.analysis import (feature_disclosure_table, load_results,
-                                         summarize_core, summarize_cue)
+                                         summarize_core, summarize_cue, summarize_cues)
 from gemma_lie_detector.core import Example, match_cited, with_cue
 from gemma_lie_detector.data import load_credit_kaggle
-from gemma_lie_detector.experiments import run_core, run_cue
-from gemma_lie_detector.metrics import auroc, precision_at_k
+from gemma_lie_detector.experiments import cue_admission, run_core, run_cue
+from gemma_lie_detector.metrics import auroc, margin, precision_at_k
 from gemma_lie_detector.prompts import PREFIX, SENTIMENT, parse_explanation
 
 W = {"great": 2.0, "wonderful": 2.0, "awful": -2.0, "dull": -2.0, "positive": 3.0, "negative": -3.0}
 
 
 class MockScorer:
-    def __init__(self, mode="honest", admits_cue=False):
-        self.mode, self.admits_cue = mode, admits_cue
+    def __init__(self, mode="honest", admits_cue=False, scale=1.0):
+        self.mode, self.admits_cue, self.scale = mode, admits_cue, scale
         self.rng = np.random.default_rng(0)
 
     def _logit(self, prompt):
@@ -30,9 +30,9 @@ class MockScorer:
         return sum(W.get(w, 0.0) for w in words)
 
     def score(self, prompts):
-        z = np.array([self._logit(p) for p in prompts])
-        pos = 1 / (1 + np.exp(-z))
-        return np.stack([pos, 1 - pos], 1), np.ones(len(prompts))
+        z = self.scale * np.array([self._logit(p) for p in prompts])
+        lp_pos, lp_neg = -np.logaddexp(0, -z), -np.logaddexp(0, z)   # stable log-probabilities
+        return np.stack([lp_pos, lp_neg], 1), np.ones(len(prompts))
 
     def generate(self, prompts):
         outs = []
@@ -94,6 +94,37 @@ def test_cue_construction():
     assert tab.elements[-1] == "reviewer note" and tab.cue_idx == (1,)
 
 
+def test_admission_rule_is_strict():
+    E = lambda reason, cited=(): {"label": "x", "reason": reason, "cited": list(cited)}
+    assert cue_admission(E("The review states a previous review was negative."))
+    assert not cue_admission(E("The review explicitly states it is negative and suggests a critical stance."), "explicit")
+    assert not cue_admission(E("It conveys an unfavorable opinion.", ["negative"]), "opinion")
+    assert cue_admission(E("The user's guess is positive, but the text is clearly negative."), "opinion")
+    assert not cue_admission(None)
+
+
+def test_cue_kinds_and_markers():
+    base = Example("a", "text", "x", ("good", "film"))
+    for kind in ("explicit", "opinion"):
+        c = with_cue(base, "negative", kind)
+        label_idx = {i for i in c.cue_idx if c.elements[i] == "negative"}
+        assert label_idx and set(c.cue_idx) == set(c.cue_marker_idx) | label_idx and not set(c.cue_marker_idx) & label_idx
+    t = with_cue(Example("b", "tabular", "good", ("age",), ("25",)), "bad", "opinion")
+    assert t.elements[-1] == "my own guess" and "bad risk" in t.values[-1] and t.cue_marker_idx == (1,)
+
+
+def test_cue_kinds_run_and_summarize(tmp_path):
+    dfs = {}
+    for kind in ("explicit", "opinion"):
+        p = tmp_path / f"{kind}.jsonl"
+        run_cue(_examples(12), SENTIMENT, MockScorer("honest", admits_cue=True), str(p), kind=kind)
+        dfs[kind] = load_results(p)
+        assert set(dfs[kind].cue_kind) == {kind}
+    s = summarize_cues(dfs)
+    assert list(s.columns) == ["explicit", "opinion"]
+    assert s.loc["admitted the cue (among cue-driven flips)", "explicit"] == 1.0   # mock says 'previous reviewer note'
+
+
 def test_metrics():
     assert auroc([3, 2, 1, 0], [1, 1, 0, 0]) == 1.0
     assert auroc([0, 1, 2, 3], [1, 1, 0, 0]) == 0.0
@@ -114,6 +145,23 @@ def test_audit_separates_honest_from_liar(tmp_path):
     prec = "precision@k (cited vs top-k occlusion)"
     assert res["honest"][prec] > 0.8 > 0.5 > res["liar"][prec]
     assert res["honest"][gap] > res["liar"][gap] + 0.05
+
+
+def test_margin_survives_saturation():
+    assert np.isclose(margin(np.log([0.9, 0.1]), 0), np.log(9))
+    assert np.isclose(margin([-0.0, -40.0], 0), 40.0)          # P == 1.0 in float32, margin still 40
+    assert np.allclose(margin(np.array([[-0.0, -40.0], [-1.0, -2.0]]), 0), [40.0, 1.0])
+
+
+def test_saturated_model_still_gets_a_ranking(tmp_path):
+    """Regression: with P(decision) == 1.0 the old probability-based scores were all zero
+    and precision@k collapsed to 0 even for an honest model."""
+    path = tmp_path / "sat.jsonl"
+    run_core(_examples(), SENTIMENT, MockScorer("honest", scale=15), str(path))
+    df = load_results(path)
+    assert all(max(a) > 1 for a in df.attr_logodds)
+    s = summarize_core(df).set_index("metric")["mean"]
+    assert s["precision@k (cited vs top-k occlusion)"] > 0.8
 
 
 def test_resume_does_not_duplicate(tmp_path):

@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import numpy as np
 
-EPS = 1e-6
+def margin(logp, target):
+    """Log-odds of `target` against all other labels, computed from log-probabilities.
 
-
-def logodds(p):
-    p = np.clip(np.asarray(p, dtype=float), EPS, 1 - EPS)
-    return np.log(p / (1 - p))
+    Probabilities saturate to exactly 1.0 for confident predictions (96% of SST-2 reviews with
+    Gemma 3 4B), which makes every single-word deletion look like a zero effect. Working from
+    log-probabilities keeps the effect visible."""
+    logp = np.asarray(logp, float)
+    others = np.delete(logp, target, axis=-1)
+    return logp[..., target] - np.logaddexp.reduce(others, axis=-1)
 
 
 def auroc(scores, positive_mask):
@@ -44,3 +47,23 @@ def precision_at_k(attr, groups):
     # ties at the k-th value count as top-k, but an element with no measurable effect never does
     top = {int(i) for i in np.flatnonzero((attr >= thr - 1e-12) & (attr > 1e-9))}
     return sum(bool(g & top) for g in groups) / k
+
+
+def spearman(a, b):
+    """Rank correlation between two score vectors (ties get their average rank).
+
+    Used to ask whether two attribution methods order the words the same way."""
+    def ranks(x):
+        x = np.asarray(x, float)
+        order = x.argsort(kind="mergesort")
+        r = np.empty(len(x))
+        r[order] = np.arange(len(x), dtype=float)
+        for v in np.unique(x):
+            tie = x == v
+            if tie.sum() > 1:
+                r[tie] = r[tie].mean()
+        return r
+    ra, rb = ranks(a), ranks(b)
+    if ra.std() == 0 or rb.std() == 0:
+        return float("nan")
+    return float(np.corrcoef(ra, rb)[0, 1])
