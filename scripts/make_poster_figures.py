@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 from gemma_lie_detector.analysis import bootstrap_ci, load_results, with_admission  # noqa: E402
-from gemma_lie_detector.analysis_deep import (cited_word_ranks, exact_sign_test, load_deep, reliable_ig,  # noqa: E402
+from gemma_lie_detector.analysis_deep import (cited_word_ranks, load_deep, reliable_ig,  # noqa: E402
                                               triangulation_table)
 
 RESULTS = "results/text_results"
@@ -125,11 +125,10 @@ def fig_who_flips(core):
     n = len(core)
     only_c, both = int((cited & ~top).sum()), int((cited & top).sum())
     only_o, neither = int((~cited & top).sum()), int((~cited & ~top).sum())
-    p = exact_sign_test(only_c, only_o)
 
     groups = [(only_c, "Only\nGemma", GEMMA, INK, "center"), (both, "Both", INK, "white", "center"),
               (only_o, "Only\nocclusion", OCCLUSION, "white", "center"), (neither, "Neither", LIGHT, INK, "center")]
-    fig, ax = plt.subplots(figsize=(7, 4.2))
+    fig, ax = plt.subplots(figsize=(7, 3.6))
     left = 0
     for count, label, colour, text_colour, align in groups:
         ax.barh(0, count, left=left, height=0.5, color=colour, edgecolor="white", linewidth=2, zorder=3)
@@ -144,11 +143,8 @@ def fig_who_flips(core):
 
     bracket(0, only_c + both, -0.45, f"Gemma's cited words flip it: {only_c + both} ({(only_c + both) / n:.0%})")
     bracket(only_c, only_c + both + only_o, -0.8, f"Occlusion's top words flip it: {both + only_o} ({(both + only_o) / n:.0%})")
-    ax.text(0, -1.25, "Each test deletes the same number of words (the number Gemma cited).\n"
-                      f"Exact sign test on the {only_c + only_o} reviews where only one test flips: p = {p:.3f}",
-            fontsize=10, color=MUTED, va="center", linespacing=1.5)
     ax.set_xlim(0, n)
-    ax.set_ylim(-1.5, 1.05)
+    ax.set_ylim(-1.05, 1.05)
     ax.axis("off")
     ax.set_title(f"Occlusion's top words flip {only_o} reviews that Gemma's cited words miss;\nthe reverse happens in {only_c} "
                  f"({n} reviews)", loc="left", fontsize=14, fontweight="bold")
