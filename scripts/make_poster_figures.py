@@ -5,7 +5,7 @@
 Four figures, each built to carry one message on a poster:
   1_deletion_flips      how often deleting words flips the decision (Gemma's citations vs the rest)
   2_cue_admission       when a planted hint flips the decision, does the explanation mention it?
-  3_deletion_curves     margin of the original decision as top-ranked words are deleted one by one
+  3_who_flips           which reviews flip when Gemma's cited words vs occlusion's top words are deleted
   4_citation_agreement  which methods agree that Gemma's cited words matter
 
 Colour follows the method everywhere: orange = Gemma's citations, blue = occlusion,
@@ -22,7 +22,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 from gemma_lie_detector.analysis import bootstrap_ci, load_results, with_admission  # noqa: E402
-from gemma_lie_detector.analysis_deep import cited_word_ranks, load_deep, reliable_ig, triangulation_table  # noqa: E402
+from gemma_lie_detector.analysis_deep import (cited_word_ranks, exact_sign_test, load_deep, reliable_ig,  # noqa: E402
+                                              triangulation_table)
 
 RESULTS = "results/text_results"
 OUT = "results/poster_figures"
@@ -113,32 +114,46 @@ def fig_cue_admission(cues):
     _save(fig, "2_cue_admission")
 
 
-def fig_deletion_curves(deep):
-    """Mean margin of the original decision as the top 1..k words of each ranking are deleted."""
-    ok = reliable_ig(deep)
-    ks = int(min(len(c) for c in ok.curve_random if len(c)))
-    x = np.arange(1, ks + 1)
-    fig, ax = plt.subplots(figsize=(8, 4.8))
-    series = [("occlusion (delete)", "curve_delete", OCCLUSION), ("integrated gradients", "curve_ig_zero", IG),
-              ("random order", "curve_random", NEUTRAL)]
-    for label, col, colour in series:
-        curves = np.array([c[:ks] for c in ok[col] if len(c) >= ks])
-        mean = curves.mean(0)
-        ax.plot(x, mean, color=colour, linewidth=2.5, marker="o", markersize=7, markeredgecolor="white",
-                markeredgewidth=1.5, zorder=3)
-        ax.text(ks + 0.12, mean[-1], label, color=INK, va="center", fontweight="bold")
-    ax.axhline(0, color=INK, linewidth=1)
-    ax.text(0.75, -1.6, "below 0: the decision has flipped", fontsize=11, color=MUTED, va="center")
-    ax.set_ylim(-3, None)
-    ax.set_xlim(0.7, ks + 2.1)
-    ax.set_xticks(x)
-    ax.set_xlabel("Words deleted (highest-ranked first)")
-    ax.set_ylabel("Mean margin of the original decision\n(log-odds; below 0 = decision flipped)")
-    ax.set_title(f"Occlusion's ranking breaks the decision fastest ({len(ok)} reviews)", loc="left",
-                 fontsize=14, fontweight="bold")
-    _style(ax, "y")
+def fig_who_flips(core):
+    """Of the 300 reviews, which flip when Gemma's cited words are deleted, which when occlusion's top words are?
+
+    Both tests delete the same number of words per review (the number Gemma cited), so the bar splits the
+    reviews into four groups. Ordering the groups as [only cited | both | only occlusion | neither] keeps each
+    method's flips contiguous, so a bracket under the bar can total them.
+    """
+    cited, top = core.del_cited_flip.astype(bool), core.del_top_flip.astype(bool)
+    n = len(core)
+    only_c, both = int((cited & ~top).sum()), int((cited & top).sum())
+    only_o, neither = int((~cited & top).sum()), int((~cited & ~top).sum())
+    p = exact_sign_test(only_c, only_o)
+
+    groups = [(only_c, "Only\nGemma", GEMMA, INK, "center"), (both, "Both", INK, "white", "center"),
+              (only_o, "Only\nocclusion", OCCLUSION, "white", "center"), (neither, "Neither", LIGHT, INK, "center")]
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    left = 0
+    for count, label, colour, text_colour, align in groups:
+        ax.barh(0, count, left=left, height=0.5, color=colour, edgecolor="white", linewidth=2, zorder=3)
+        ax.text(left + count / 2, 0, str(count), ha="center", va="center", fontweight="bold", color=text_colour, fontsize=14)
+        ax.text(left + count / 2, 0.36, label, ha="center", va="bottom", fontsize=11)
+        left += count
+
+    def bracket(x0, x1, y, text):
+        """Bracket under the bar spanning x0..x1 with its label to the right."""
+        ax.plot([x0, x0, x1, x1], [y + 0.07, y, y, y + 0.07], color=INK, linewidth=1.4, clip_on=False)
+        ax.text(x1 + 5, y, text, va="center", fontsize=12, fontweight="bold")
+
+    bracket(0, only_c + both, -0.45, f"Gemma's cited words flip it: {only_c + both} ({(only_c + both) / n:.0%})")
+    bracket(only_c, only_c + both + only_o, -0.8, f"Occlusion's top words flip it: {both + only_o} ({(both + only_o) / n:.0%})")
+    ax.text(0, -1.25, "Each test deletes the same number of words (the number Gemma cited).\n"
+                      f"Exact sign test on the {only_c + only_o} reviews where only one test flips: p = {p:.3f}",
+            fontsize=10, color=MUTED, va="center", linespacing=1.5)
+    ax.set_xlim(0, n)
+    ax.set_ylim(-1.5, 1.05)
+    ax.axis("off")
+    ax.set_title(f"Occlusion's top words flip {only_o} reviews that Gemma's cited words miss;\nthe reverse happens in {only_c} "
+                 f"({n} reviews)", loc="left", fontsize=14, fontweight="bold")
     fig.tight_layout()
-    _save(fig, "3_deletion_curves")
+    _save(fig, "3_who_flips")
 
 
 def fig_citation_agreement(deep):
@@ -173,7 +188,7 @@ def main():
     core = core.set_index("id").loc[deep.id].reset_index()          # same reviews, same order
     fig_deletion_flips(core, deep)
     fig_cue_admission(cues)
-    fig_deletion_curves(deep)
+    fig_who_flips(core)
     fig_citation_agreement(deep)
     print("wrote", sorted(os.listdir(OUT)))
 
