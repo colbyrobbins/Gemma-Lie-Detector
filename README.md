@@ -187,3 +187,5 @@ results/          JSONL outputs and figures
 ## License and model terms
 
 Code: see `LICENSE`. Gemma weights are governed by Google's Gemma terms of use and are not redistributed here.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
