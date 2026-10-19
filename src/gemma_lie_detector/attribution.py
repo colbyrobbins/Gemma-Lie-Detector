@@ -105,7 +105,7 @@ class GemmaAttributor:
         others = torch.cat([lab[:, :target], lab[:, target + 1:]], dim=-1)
         return lab[:, target] - torch.logsumexp(others, dim=-1)
 
-    def attribute(self, task, ex, target, baseline="pad"):
+    def attribute(self, task, ex, target, baseline="zero"):
         """Word-level IG scores for label index `target`. Returns (scores [n_words], completeness_error)."""
         s, torch = self.scorer, self.scorer.torch
         prompt = task.prompt(ex.render())

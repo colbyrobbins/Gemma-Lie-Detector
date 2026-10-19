@@ -7,11 +7,10 @@ words), and check that the audit tells them apart.
 import json
 
 import numpy as np
-import pytest
 
 from gemma_lie_detector.analysis import (feature_disclosure_table, load_results,
                                          summarize_core, summarize_cue, summarize_cues)
-from gemma_lie_detector.core import Example, match_cited, with_cue
+from gemma_lie_detector.core import Example, match_groups, with_cue
 from gemma_lie_detector.data import load_credit_kaggle
 from gemma_lie_detector.experiments import cue_admission, run_core, run_cue
 from gemma_lie_detector.metrics import auroc, margin, precision_at_k
@@ -80,11 +79,11 @@ def test_parse_explanation_variants():
 def test_render_and_match():
     t = Example("a", "text", "positive", tuple("a great , great film".split()))
     assert t.render({1}) == "a , great film"
-    assert match_cited(t, ["Great!"]) == ({1, 3}, [])
-    assert match_cited(t, ["banana"]) == (set(), ["banana"])
+    assert match_groups(t, ["Great!"]) == [{1, 3}]
+    assert match_groups(t, ["banana"]) == [set()]
     tab = Example("b", "tabular", "good", ("age", "checking account"), ("25", "little"))
     assert tab.render({0}).splitlines()[0] == "- age: not provided"
-    assert match_cited(tab, ["Age", "Checking Account: little", "income"]) == ({0, 1}, ["income"])
+    assert match_groups(tab, ["Age", "Checking Account: little", "income"]) == [{0}, {1}, set()]
 
 
 def test_cue_construction():

@@ -4,9 +4,9 @@
 
 Language models will happily tell you *why* they answered the way they did ("I chose negative because of *tedious* and *dull*"). This project tests whether that story is true. We treat the explanation as a claim about the model's own behaviour and check the claim with interventions: delete what the model says mattered and see whether the answer changes; plant a misleading hint and see whether the model admits it was swayed.
 
-> Status: final project for Duke AIPI Responsible AI. Code, tests, Colab notebooks and a Streamlit demo are in place, and the text experiments are complete (300 SST-2 reviews; results below). Still to do: hand-check a sample of the cue-admission labels.
+> Status: final project for Duke AIPI Responsible AI. Code, tests, Colab notebooks, a Streamlit demo and a conference poster are in place, and the text experiments are complete (300 SST-2 reviews; results below).
 >
-> **Scope:** the evaluated study is on **text** (SST-2 movie reviews). Tabular support (German credit) is implemented and tested on a mock model but has **not been evaluated on Gemma**; it is future work. Images are out of scope.
+> **Scope:** the evaluated study is on **text** (SST-2 movie reviews). Tabular support (German credit) is implemented and tested on a mock model but has **not been run or evaluated on Gemma**; it is future work. Images are **not implemented**.
 
 **Live demo:** <https://gemma-lie-detector.streamlit.app/> - browse the recorded runs, delete Gemma's cited words and see the decision change, and step through the planted-hint test. Nothing is recomputed live.
 
@@ -24,7 +24,7 @@ One model (`google/gemma-3-4b-it`), one prompt format, three kinds of evidence.
 | Deletion (comprehensiveness) | Does deleting the cited elements hurt the decision more than deleting random ones? | drop in P(decision), flip rate, gap vs random and vs top-by-occlusion |
 | Sufficiency | Does the decision survive if *only* the cited elements are kept? | flip rate |
 | Planted cue | When a hint pointing at the opposite label flips the decision, does the explanation admit it? | cue-driven flip rate, admission rate |
-| Disclosure (tabular) | Which features drive decisions but are never cited (e.g. `age`, `sex`)? | driver rate vs cited rate per feature |
+| Disclosure (tabular, not run) | Which features drive decisions but are never cited (e.g. `age`, `sex`)? | driver rate vs cited rate per feature |
 
 A flip counts as *cue-driven* only if removing the cue restores the original decision, so the test is causal rather than anecdotal.
 
@@ -92,7 +92,7 @@ Integrated gradients (IG) passed its completeness check (relative error under 10
 3. Gemma often acknowledges an outside hint that changed its answer, but about a third of the time it does not.
 4. No single attribution method is ground truth: the three disagree substantially, which is why the deep dive compares them rather than picking one.
 
-Per-review records are in `results/text_results/`; `app/` replays them interactively.
+Per-review records are in `results/text_results/`; `app/` replays them interactively. The poster figures are drawn from the same files (`python scripts/make_poster_figures.py`, see below).
 
 ## Modalities
 
@@ -100,22 +100,45 @@ Per-review records are in `results/text_results/`; `app/` replays them interacti
 |---|---|---|---|---|
 | Text | word | delete or replace | SST-2 (GLUE validation) | **evaluated** |
 | Tabular | feature column | value becomes "not provided" | German credit (Kaggle `uciml/german-credit` or OpenML `credit-g`) | implemented and unit-tested, **not evaluated** (future work) |
-| Image | named object / region | mask or blur | COCO subset | out of scope |
+| Image | named object / region | mask or blur | none | not implemented |
+
+## Setup and requirements
+
+**Purpose of each environment**
+
+| You want to | You need | Where |
+|---|---|---|
+| Run Gemma and reproduce the results | a GPU, a Hugging Face account with the Gemma license accepted, the packages in `requirements-gpu.txt` | Google Colab (recommended) |
+| Browse the recorded results | `streamlit` only | hosted demo, or locally |
+| Run the tests | `requirements.txt` only (no GPU, no downloads) | any machine, Python 3.10+ |
+
+**Dependencies**
+
+- `requirements.txt`: `numpy`, `pandas`, `scipy`, `matplotlib` (analysis and figures), `pytest` (tests), `streamlit` (demo app). Python 3.10 or newer.
+- `requirements-gpu.txt`: everything above plus `torch`, `transformers>=4.50`, `accelerate`, `datasets`, `scikit-learn`, `huggingface_hub`, `tqdm`. The Colab notebooks install these themselves.
+- The same lists are declared in `pyproject.toml` (`pip install -e .` for the base set, `pip install -e ".[gpu]"` for the GPU extras).
+
+**Datasets and external resources**
+
+- **SST-2** (movie-review sentiment, GLUE validation split) is downloaded automatically through the Hugging Face `datasets` library; no account is needed for the data itself. `src/gemma_lie_detector/data.py` samples reviews with a fixed seed (the notebooks use 300).
+- **German credit** (tabular, not evaluated) is read from a Kaggle CSV (`uciml/german-credit`, uploaded by hand) or from OpenML (`credit-g`, no login).
+- **Model:** `google/gemma-3-4b-it` (about 8 GB of weights in bfloat16), downloaded from Hugging Face on first use. It is a gated model: accept the license at <https://huggingface.co/google/gemma-3-4b-it> while logged in, create a read token, and provide it as the Colab secret `HF_TOKEN` (or the environment variable `HF_TOKEN` elsewhere). No other API or paid service is used.
+- **Hardware:** the scorer uses bfloat16 (Gemma 3 produces non-finite logits in float16). An L4 or A100 runs it natively; a free T4 works but is slow.
 
 ## Quick start
 
-**Run Gemma (Colab, free T4 is enough to start)**
+**Run Gemma (Colab)**
 
-1. Accept the license at <https://huggingface.co/google/gemma-3-4b-it> (while logged in) and create a read token.
-2. In Colab add a secret named `HF_TOKEN` with notebook access on, and select a GPU runtime.
-3. Open `notebooks/01_text_core.ipynb` and run top to bottom, then `03_text_deepdive.ipynb` (it reuses 01's citations). `02_tabular.ipynb` exists but has not been run on Gemma. Start with `N = 50`; the initial test cell shows raw model output so you can check parsing before the long run. Results are written as resumable JSONL under `results/text_results/` (text) and committed, so a fresh clone resumes where the last run stopped.
+1. Complete the Hugging Face license, token and `HF_TOKEN` secret steps above, and select a GPU runtime.
+2. Open `notebooks/01_text_core.ipynb` (Colab badge at the top) and run it top to bottom, then `03_text_deepdive.ipynb`, which reuses 01's citations. Start with `N = 50`; the initial test cell shows raw model output so you can check parsing before the long run. `02_tabular.ipynb` is implemented but has **not been run on Gemma**.
+3. Results are written as resumable JSONL under `results/text_results/` and committed, so a fresh clone resumes where the last run stopped.
 
 **Browse the results (no GPU)**
 
-Or open the hosted version: <https://gemma-lie-detector.streamlit.app/>. To run it locally:
+Open the hosted version, <https://gemma-lie-detector.streamlit.app/>, or run it locally:
 
 ```bash
-pip install streamlit
+pip install -r requirements.txt
 streamlit run app/streamlit_app.py
 ```
 
@@ -129,7 +152,13 @@ pip install -e .
 pytest
 ```
 
-The tests use a mock bag-of-words model with an "honest" and a "liar" personality and check that the audit tells them apart.
+The tests use a mock bag-of-words model with an "honest" and a "liar" personality and check that the audit tells them apart. They also cover the tabular path, the analysis code and the demo logic.
+
+**Redraw the poster figures from the saved results**
+
+```bash
+python scripts/make_poster_figures.py     # writes results/poster_figures/*.png
+```
 
 ## Repo layout
 
@@ -147,9 +176,12 @@ src/gemma_lie_detector/
   analysis.py     summary tables with bootstrap CIs, disclosure table, figures
   analysis_deep.py  deep-dive tables and figures
 app/              Streamlit viewer for recorded runs (app/data = snapshot)
-notebooks/        01_text_core, 03_text_deepdive (Colab); 02_tabular (not yet run)
-tests/            mock-model tests
-results/          JSONL outputs and figures
+notebooks/        01_text_core, 03_text_deepdive (Colab); 02_tabular (implemented, not run)
+tests/            mock-model tests (no GPU needed)
+scripts/          make_poster_figures.py (redraws the poster figures from the saved results)
+poster/           the conference poster (.pptx, plus a .png preview)
+results/          text_results/ (JSONL runs, cue-review CSVs, notebook figures) and poster_figures/
+LICENSE           code license
 ```
 
 ## Design decisions
@@ -168,8 +200,8 @@ results/          JSONL outputs and figures
 - **One-at-a-time occlusion misses interactions** (negation, "not good") and under-credits words that are repeated or redundant. The flip-set search and deletion curves in the deep dive probe this, but only within their limits.
 - **Integrated gradients depend on the baseline and on numerical noise.** Disagreement with occlusion is not proof that either is wrong.
 - **Deleting words makes ungrammatical text**; this is an out-of-distribution intervention, so a drop can partly reflect confusion rather than importance. The random-deletion baseline controls for this to a degree.
-- **Cue admission is detected with a keyword rule** (a reference to the hint as a hint; quoting its words does not count), so it can miss paraphrases and is strict by design. Plan: hand-check a sample of about 30 explanations and report agreement.
-- **Small model, short inputs, one evaluated dataset.** Findings are about `gemma-3-4b-it` on SST-2, not LLMs in general. The tabular pipeline has not been run on Gemma.
+- **Cue admission is detected with a keyword rule** (a reference to the hint as a hint; quoting its words does not count), so it can miss paraphrases and is strict by design. It has not been validated against hand labels; `results/text_results/cue_review_*.csv` lists every explanation with its label for that purpose.
+- **Small model, short inputs, one evaluated dataset.** Findings are about `gemma-3-4b-it` on SST-2, not LLMs in general. The tabular pipeline has not been run on Gemma, and images are not implemented.
 - **Numerical precision.** Gemma 3 may be unstable in fp16 on a T4; the scorer raises on non-finite logits and the notebook lets you switch dtype or model.
 - **The deletion judge favours deletion-based rankings.** Occlusion by deletion is scored with the same intervention that produced its ranking, and IG measures something different, so the three-way comparison is not a neutral contest. Read it as how well each method predicts what deletion breaks.
 - **IG is only trusted on 62.7% of reviews** (completeness error under 10%), so IG conclusions rest on 188 of 300 reviews and may not extend to the rest.

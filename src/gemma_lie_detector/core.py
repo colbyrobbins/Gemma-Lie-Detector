@@ -3,8 +3,8 @@
 Every input is a list of named *elements* that can be ablated:
   text    -> words           (ablation = delete the word)
   tabular -> feature columns (ablation = replace the value with "not provided")
-  image   -> objects/regions (planned; ablation = mask/blur)
-The same faithfulness metrics then apply to every modality.
+The same faithfulness metrics apply to either. Only text is evaluated on Gemma; the tabular path is
+implemented and unit-tested with a mock model. Images are not implemented.
 """
 from __future__ import annotations
 
@@ -67,13 +67,6 @@ def match_groups(ex: Example, cited) -> list:
                 hit = {i for i, n in enumerate(names) if f" {n} " in f" {cn} "}
             groups.append(hit)
     return groups
-
-
-def match_cited(ex: Example, cited) -> tuple:
-    """Returns (matched_indices, invalid_strings)."""
-    groups = match_groups(ex, cited)
-    matched = set().union(*groups) if groups else set()
-    return matched, [c for c, g in zip(cited, groups) if not g]
 
 
 CUE_TEXT = {

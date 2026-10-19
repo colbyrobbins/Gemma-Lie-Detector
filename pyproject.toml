@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gemma-lie-detector"
 version = "0.1.0"
-description = "Do Gemma's self-explanations match what actually drives its decisions? An ablation-based faithfulness audit for text and tabular inputs."
+description = "Do Gemma's self-explanations match what actually drives its decisions? An ablation-based faithfulness audit, evaluated on text (SST-2 movie reviews)."
 requires-python = ">=3.10"
 dependencies = ["numpy", "pandas", "scipy", "matplotlib"]
 
